@@ -1,0 +1,19 @@
+# Ignore virtualenv
+include/
+lib/
+Scripts/
+pip/
+python/
+*.pyc
+__pycache__/
+
+# Ignore system files
+*.log
+*.sqlite3
+
+# Ignore environment files
+# .env
+
+# Ignore IDE/editor configs
+.vscode/
+.idea/
