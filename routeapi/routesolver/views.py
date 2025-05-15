@@ -24,13 +24,8 @@ def get_vpr_solutions(request):
                   max_orders=data.get('maxOrders')
                   route_length =data.get('routeLength')
                   solver = VRPSolver(invoice_date=invoice_date, mile_range=mile_range,max_orders=max_orders, route_length=route_length)
-                  order_reports = solver.generate_routing_solutions()
-                
-            
-        
-
-                  return JsonResponse({"message": order_reports}, safe=False)
-            
+                  order_reports = solver.generate_routing_solutions()               
+                  return JsonResponse({"message": order_reports}, safe=False)          
             except json.JSONDecodeError:
                   return JsonResponse({"error":"Invalid JOSN body"}, status=400)
             except ValueError as ve:
