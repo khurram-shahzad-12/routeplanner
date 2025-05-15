@@ -10,13 +10,13 @@ import json
 
 
 class VRPSolver:
-    def __init__(self, invoice_date, kilometer_range,max_orders,route_length ):
+    def __init__(self, invoice_date, mile_range,max_orders,route_length ):
         clean_date = invoice_date.split('T')[0]
         self.start_day = datetime.strptime(clean_date, "%Y-%m-%d")
         self.end_day = self.start_day + timedelta(days=1)
         self.gmaps = googlemaps.Client(key=config('GOOGLE_MAPS_API_KEY'))
         self.invoice_date = invoice_date
-        self.kilometer_range = int(kilometer_range)
+        self.mile_range = int(mile_range)
         self.max_orders = int(max_orders)
         self.route_length = int(route_length)
         self.SERVICE_TIME = 900
@@ -48,6 +48,8 @@ class VRPSolver:
                         units = 'metric',
                         departure_time = datetime.now(),
                     )
+                    if result['rows'][0]['elements'][0]['status'] != "OK":
+                        raise ValueError(f"failed to get distance from {origin} to {destination}")
                     distance = result['rows'][0]['elements'][0]['distance']['value']
                     duration = result['rows'][0]['elements'][0]['duration']['value']
                     row.append(distance)
@@ -56,21 +58,20 @@ class VRPSolver:
             time_matrix.append(time_row)
         return distance_matrix, time_matrix
 
-
-
     def get_orders_for_routing(self):
-        orders = list(orders_collection.find({'invoice_date':{'$gte':self.start_day,'$lt':self.end_day}},{'_id': 1, 'ot_date': 1, 'delivery_status': 1, 'items.weight_kg': 1,'customer':1, 'coordinates': 1, 'priority_value': 1}))
+        orders = list(orders_collection.find({'invoice_date':{'$gte':self.start_day,'$lt':self.end_day}},{'_id': 1, 'ot_date': 1, 'delivery_status': 1, 'items.weight_kg': 1,'customer':1, 'priority_value': 1}))
         if not orders:
             raise ValueError("no order found for the invoice date")
-
         customer_ids = [order['customer'] for order in orders if 'customer' in order]
         customers = {str(cust['_id']): cust
-                     for cust in customer_collection.find({'_id':{'$in':customer_ids}})}      
-                     
-        vehicles = list(vehicle_collection.find({'availability':'available'}))
-        
+                     for cust in customer_collection.find({'_id':{'$in':customer_ids}})}                         
+        vehicles = list(vehicle_collection.find({'availability':'available'}))        
         if not vehicles:
             raise ValueError("vehicles are not available for orders")
+        for veh in vehicles:
+            if 'capacity' not in veh or veh['capacity'] is None:
+                raise ValueError(f"vehicle {veh.get('name')} is missing capacity information")
+            
         vehicle_details = [{
             '_id': str(veh['_id']),
             'name': veh['name'],
@@ -93,8 +94,12 @@ class VRPSolver:
                 for item in order.get('items',[])
             )
             customer_data = customers.get(str(order['customer']), {})
+            if not customer_data:
+                raise ValueError(f"customer not found for order {order["_id"]}")
             latitude = customer_data.get('latitude')
             longitude = customer_data.get('longitude')
+            if latitude is None or longitude is None:
+                raise ValueError(f"missing map location for {customer_data['customer_name']}")
             location_str = f"{latitude},{longitude}"
             locations.append(location_str)
             # locations.append(customer_data['coordinates'])
@@ -134,16 +139,10 @@ class VRPSolver:
             'priority_weight': priority_weight,
         }
     
-
     def solve_vrp(self, depot_index, distance_matrix, vehicle_capacities, demands, num_vehicles, time_windows, time_matrix, priority_weight):
         manager = pywrapcp.RoutingIndexManager(len(distance_matrix), num_vehicles, depot_index)
         routing = pywrapcp.RoutingModel(manager)
-
-        for idx in range(1, len(distance_matrix)):
-            node_index = manager.NodeToIndex(idx)
-            prirority = priority_weight[idx-1] if(idx-1) < len(priority_weight) else 0
-            routing.SetVisitPriority(node_index, int(prirority))
-
+        
         def distance_callback(from_index, to_index):
             from_node = manager.IndexToNode(from_index)
             to_node = manager.IndexToNode(to_index)
@@ -165,7 +164,6 @@ class VRPSolver:
             'Capacity'
         )
 
-
         def count_callback(from_index):
             from_node = manager.IndexToNode(from_index)
             return 0 if from_node == depot_index else 1
@@ -178,16 +176,13 @@ class VRPSolver:
             True,
             'OrderCount',
         )
-
-
         routing.AddDimension(
             transit_callback_index,
             0,
-            self.kilometer_range*1000,
+            self.mile_range*1600,
             True,
             'Distance',
         )
-
         SERVICE_TIME = self.SERVICE_TIME
         def time_callback(from_index, to_index):
             from_node = manager.IndexToNode(from_index)
@@ -218,12 +213,22 @@ class VRPSolver:
             route_duration = time_dimension.CumulVar(end_idx)-time_dimension.CumulVar(start_idx)
             solver.Add(route_duration <= max_route_duration)
             # time_dimension.CumulVar(end_idx).SetMax(max_route_duration)
-
-        penalty = 900000000000000
-        for node in range(1, len(distance_matrix)):
+        
+        for node in range(1, len(distance_matrix)):           
+            raw_priority = priority_weight[node-1] if(node-1) < len(priority_weight) else 0
+            try: 
+                priority = int(raw_priority)
+            except (TypeError, ValueError):
+                priority = 0
+            if priority >= 50:
+                penalty = 10000000
+            elif priority >= 10:
+                penalty = 500000
+            else:
+                penalty = 100000           
             routing.AddDisjunction([manager.NodeToIndex(node)], penalty)
-
-        search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+        
+        search_parameters = pywrapcp.DefaultRoutingSearchParameters()       
         search_parameters.first_solution_strategy = (
             routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
         )
@@ -231,14 +236,13 @@ class VRPSolver:
             routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
         )
         search_parameters.time_limit.seconds = 100
-        search_parameters.lns_time_limit.seconds = 30
-
+        search_parameters.lns_time_limit.seconds = 30      
         solution = routing.SolveWithParameters(search_parameters)
+      
         solution_data = {
             'routes': [],
             'total_distance':0
         }
-
         if solution:
             solution_data['total_distance'] = solution.ObjectiveValue()
             time_dimension = routing.GetDimensionOrDie('Time')
@@ -250,8 +254,6 @@ class VRPSolver:
                 route_details = []
                 previous_node = None
                 start_time = solution.Min(time_dimension.CumulVar(routing.Start(vehicle_id)))
-                
-
                 route_details.append({
                     'node': manager.IndexToNode(index),
                     'type': 'depot',
@@ -267,9 +269,7 @@ class VRPSolver:
                     previous_index = index
                     next_index = solution.Value(routing.NextVar(index))
                     next_node =manager.IndexToNode(next_index)
-
                     route_distance += routing.GetArcCostForVehicle(index, next_index, vehicle_id)
-
                     arrival_time = solution.Min(time_dimension.CumulVar(next_index))
                     travel_time = time_matrix[node][next_node]
                     distance = distance_matrix[node][next_node]
@@ -298,7 +298,6 @@ class VRPSolver:
                 })
         return solution_data
     
-            
     def generate_routing_solutions(self):
         vrp_data = self.get_orders_for_routing()
         solution = self.solve_vrp(
@@ -310,27 +309,23 @@ class VRPSolver:
             vrp_data['time_windows'],
             vrp_data['time_matrix'],
             vrp_data['priority_weight']
-        )
-       
+        )     
         mapped_solution = {
             "solution_id" : f"SOL_{datetime.now().strftime('%Y%m%d%H%M%S')}",
             'date' : self.start_day,
-            'total_distance' : round(solution['total_distance']/1000,2),
+            'total_distance' : round(solution['total_distance']/1600,2),
             'vehicle_routes': []
-        }
-      
+        }     
         for route in solution['routes']:
             if len(route['route_detail']) <= 2:
                 continue 
             vehicle_id = route['vehicle_id']
             vehicle = vrp_data['vehicle_details'][vehicle_id]
-
             route_details = {
                 'vehicle_id':ObjectId(vehicle['_id']),
                 'stops':[],
-                'distance_veh_km': round(route['distance']/1000, 2)
-            }
-        
+                'distance_veh_km': round(route['distance']/1600, 2)
+            }       
             for i,stop in enumerate(route['route_detail']):
                 stop_index = stop['node']
               
@@ -346,7 +341,7 @@ class VRPSolver:
                         'departure_time': self.seconds_to_time(stop['departure_time']),
                         'arrival_time': self.seconds_to_time(adjusted_arrival),
                         'travel_time': self.format_travel_time(stop['travel_time']),
-                        'distance': round(stop['distance']/1000,2),
+                        'distance': round(stop['distance']/1600,2),
                     })
                     else:                        
                         route_details['stops'].append({
@@ -356,17 +351,14 @@ class VRPSolver:
                         'departure_time': self.seconds_to_time(stop['departure_time']),
                         'arrival_time': self.seconds_to_time(stop['arrival_time']),
                         'travel_time': self.format_travel_time(stop['travel_time']),
-                        'distance': round(stop['distance']/1000,2),
+                        'distance': round(stop['distance']/1600,2),
                     })
                 else:
-                    order_index = stop_index - 1
-                 
+                    order_index = stop_index - 1  
                     order = vrp_data['orders'][order_index]
                     customer_id =str(order['customer'])
                     customer_array = vrp_data['customers']
-
                     customer = customer_array[customer_id]
-
                     if(customer):
                         latitude= customer.get('latitude')
                         longitude = customer.get('longitude')
@@ -380,25 +372,16 @@ class VRPSolver:
                             'location': location_str, 
                             'arrival_time': self.seconds_to_time(stop['arrival_time']),
                             'travel_time': self.format_travel_time(stop['travel_time']),
-                            'distance': round(stop['distance']/1000,2),
+                            'distance': round(stop['distance']/1600,2),
                             'departure_time': self.seconds_to_time(stop['departure_time'])                                                                         
                         })
-            mapped_solution['vehicle_routes'].append(route_details)
-
+            mapped_solution['vehicle_routes'].append(route_details)       
         vehicle_collection.update_many({}, {'$set':{'status': 'unassigned'}})
-
-        for i,stop in enumerate(mapped_solution['vehicle_routes']):
-            for stp in stop['stops']:
-              
-                if stp['type'] == 'delivery':
-                    vehicle = vrp_data['vehicle_details'][i]
-                    
-                    vehicle_collection.update_one({
-                        '_id': ObjectId(vehicle['_id'])
-                    }, {'$set': {'status': 'assigned'}})
-                   
-        routesolver_collection.insert_one(mapped_solution)
-            
-        return mapped_solution
+        for i,veh in enumerate(mapped_solution['vehicle_routes']):                                            
+            vehicle_collection.update_one({
+                '_id': ObjectId(veh['vehicle_id'])
+            }, {'$set': {'status': 'assigned'}})                 
+        routesolver_collection.insert_one(mapped_solution)            
+        return []
         
 
