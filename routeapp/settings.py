@@ -137,8 +137,6 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
-    "https://test.spicedirectwholesale.co.uk:8989",
-    "https://test.spicedirectwholesale.co.uk"
 ]
 
 MONGO_URI = config('MONGO_URI')
