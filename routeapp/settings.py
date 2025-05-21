@@ -26,7 +26,11 @@ SECRET_KEY = 'django-insecure-r9bmrj*k9bbq0335*#64b2#g=wgm(f4b-!m(nl@*o(*8%yamql
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    'test.spicedirectwholesale.co.uk',
+    'localhost',
+    '127.0.0.1',
+]
 
 
 # Application definition
