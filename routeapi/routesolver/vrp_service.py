@@ -75,7 +75,7 @@ class VRPSolver:
         vehicle_details = [{
             '_id': str(veh['_id']),
             'name': veh['name'],
-            'capacity': veh['capacity'],
+            'capacity': int(veh['capacity']),
             'current_location': '55.84869, -4.21531',
             'status': veh['status'],            
         } for veh in vehicles]
@@ -90,7 +90,7 @@ class VRPSolver:
        
         for i,order in enumerate(orders):
             total_weight_kg = sum(
-                item.get('weight_kg', )
+                int(item.get('weight_kg', 1))
                 for item in order.get('items',[])
             )
             customer_data = customers.get(str(order['customer']), {})
@@ -100,7 +100,8 @@ class VRPSolver:
             longitude = customer_data.get('longitude')
             if latitude is None or longitude is None:
                 raise ValueError(f"missing map location for {customer_data['customer_name']}")
-            location_str = f"{latitude},{longitude}"
+            # location_str = f"{latitude},{longitude}"
+            location_str = (float(latitude),float(longitude))
             locations.append(location_str)
             # locations.append(customer_data['coordinates'])
             demand.append(total_weight_kg)
@@ -140,14 +141,27 @@ class VRPSolver:
         }
     
     def solve_vrp(self, depot_index, distance_matrix, vehicle_capacities, demands, num_vehicles, time_windows, time_matrix, priority_weight):
+        num_nodes = len(distance_matrix)
+        assert num_nodes > 0, "Distance matrix is empty"
+        for row in distance_matrix:
+            assert len(row) == num_nodes, "Distance matrix is not square"
         manager = pywrapcp.RoutingIndexManager(len(distance_matrix), num_vehicles, depot_index)
         routing = pywrapcp.RoutingModel(manager)
-        
+       
         def distance_callback(from_index, to_index):
-            from_node = manager.IndexToNode(from_index)
-            to_node = manager.IndexToNode(to_index)
-            return distance_matrix[from_node][to_node]
-        
+            try:
+                from_index = int(from_index)
+                to_index = int(to_index)
+                from_node = manager.IndexToNode(from_index)
+                to_node = manager.IndexToNode(to_index)
+                return distance_matrix[from_node][to_node]
+            except OverflowError as oe:
+                print(f"overflow eror in index conversion: {oe}")
+                raise ValueError("invalid index type")
+            except IndexError as ie:
+                print(f"index error: {ie}")
+                raise ValueError('reset cusotmer address on map')
+    
         transit_callback_index = routing.RegisterTransitCallback(distance_callback)
         routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
 
@@ -212,23 +226,23 @@ class VRPSolver:
             solver = routing.solver()
             route_duration = time_dimension.CumulVar(end_idx)-time_dimension.CumulVar(start_idx)
             solver.Add(route_duration <= max_route_duration)
-            # time_dimension.CumulVar(end_idx).SetMax(max_route_duration)
+            
         
         for node in range(1, len(distance_matrix)):           
             raw_priority = priority_weight[node-1] if(node-1) < len(priority_weight) else 0
             try: 
                 priority = int(raw_priority)
             except (TypeError, ValueError):
-                priority = 0
-            if priority >= 50:
-                penalty = 10000000
-            elif priority >= 10:
-                penalty = 500000
+                priority = 10
+            if priority >= 1000:
+                penalty = 100000000000
+            elif priority >= 100:
+                penalty = 10000000000
             else:
-                penalty = 100000           
+                penalty = 1000000000           
             routing.AddDisjunction([manager.NodeToIndex(node)], penalty)
         
-        search_parameters = pywrapcp.DefaultRoutingSearchParameters()       
+        search_parameters = pywrapcp.DefaultRoutingSearchParameters() 
         search_parameters.first_solution_strategy = (
             routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
         )
@@ -236,9 +250,9 @@ class VRPSolver:
             routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
         )
         search_parameters.time_limit.seconds = 100
-        search_parameters.lns_time_limit.seconds = 30      
+        search_parameters.lns_time_limit.seconds = 30     
         solution = routing.SolveWithParameters(search_parameters)
-      
+       
         solution_data = {
             'routes': [],
             'total_distance':0
