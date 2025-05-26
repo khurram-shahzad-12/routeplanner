@@ -92,14 +92,18 @@ class VRPSolver:
             customer_data = customers.get(str(order['customer']), {})
             if not customer_data:
                 raise ValueError(f"customer not found for order {order["_id"]}")
+            current_customer = customer_data.get(str('customer_name'))
+
             latitude = customer_data.get('latitude')
-            longitude = customer_data.get('longitude')
+            longitude = customer_data.get('longitude')         
             if latitude is None or longitude is None:
                 raise ValueError(f"missing map location for {customer_data['customer_name']}")
-            # location_str = f"{latitude},{longitude}"
             location_str = (float(latitude),float(longitude))
             locations.append(location_str)
-            # locations.append(customer_data['coordinates'])
+            latitude_float = float(latitude)
+            longitude_float = float(longitude)
+            if not (49.9 <= latitude_float <= 60.9 and -8.6 <= longitude_float <= 1.8):
+                raise ValueError(f"{current_customer} location could not find in map")   
             demand.append(total_weight_kg)
             customer_id_to_index[customer_data['_id']]=i+1
             start_time_str = customer_data.get('business_start_hour')
