@@ -6,6 +6,7 @@ from .models import routesolver_collection, orders_collection, customer_collecti
 from ..helper.serializer import json_serialize
 from decouple import config
 from bson import ObjectId
+import requests
 import json
 
 
@@ -14,7 +15,7 @@ class VRPSolver:
         clean_date = invoice_date.split('T')[0]
         self.start_day = datetime.strptime(clean_date, "%Y-%m-%d")
         self.end_day = self.start_day + timedelta(days=1)
-        self.gmaps = googlemaps.Client(key=config('GOOGLE_MAPS_API_KEY'))
+        # self.gmaps = googlemaps.Client(key=config('GOOGLE_MAPS_API_KEY'))
         self.invoice_date = invoice_date
         self.mile_range = int(mile_range)
         self.max_orders = int(max_orders)
@@ -32,30 +33,24 @@ class VRPSolver:
     def get_distance_matrix(self, locations):
         distance_matrix = []
         time_matrix = []
+        osrm_url = "http://localhost:6000/table/v1/driving/"
 
-        for origin in locations:
-            row = []
-            time_row = []
-            for destination in locations:
-                if origin == destination:
-                    row.append(0)
-                    time_row.append(0)
-                else:
-                    result = self.gmaps.distance_matrix(
-                        origins = [origin],
-                        destinations = [destination],                       
-                        mode = 'driving',
-                        units = 'metric',
-                        departure_time = datetime.now(),
-                    )
-                    if result['rows'][0]['elements'][0]['status'] != "OK":
-                        raise ValueError(f"failed to get distance from {origin} to {destination}")
-                    distance = result['rows'][0]['elements'][0]['distance']['value']
-                    duration = result['rows'][0]['elements'][0]['duration']['value']
-                    row.append(distance)
-                    time_row.append(duration)
-            distance_matrix.append(row)
-            time_matrix.append(time_row)
+        coordinates =';'.join([f"{lon},{lat}" for lat, lon in locations])
+        url = f"{osrm_url}{coordinates}?annotations=distance,duration"
+        result = requests.get(url)
+        if result.status_code != 200:
+            raise ValueError(f"failed to get ditance: {result.status_code}")
+        data = result.json()
+        if "distances" not in data or "durations" not in data:
+            raise ValueError("Missing distance/duration from osrm response")
+        distance_matrix = [
+            [int(cell) if cell is not None else 0 for cell in row]
+            for row in data["distances"]
+        ]
+        time_matrix = [
+            [int(cell) if cell is not None else 0 for cell in row]
+            for row in data["durations"]
+        ]
         return distance_matrix, time_matrix
 
     def get_orders_for_routing(self):
@@ -80,7 +75,8 @@ class VRPSolver:
             'status': veh['status'],            
         } for veh in vehicles]
        
-        depot_location = vehicle_details[0]['current_location']
+        depot_location_str = vehicle_details[0]['current_location']
+        depot_location = tuple(map(float, depot_location_str.split(',')))
         locations = [depot_location]
         demand = [0]
         customer_id_to_index = {}
@@ -150,8 +146,6 @@ class VRPSolver:
        
         def distance_callback(from_index, to_index):
             try:
-                from_index = int(from_index)
-                to_index = int(to_index)
                 from_node = manager.IndexToNode(from_index)
                 to_node = manager.IndexToNode(to_index)
                 return distance_matrix[from_node][to_node]
@@ -235,11 +229,11 @@ class VRPSolver:
             except (TypeError, ValueError):
                 priority = 10
             if priority >= 1000:
-                penalty = 100000000000
+                penalty = 10000000000000000
             elif priority >= 100:
-                penalty = 10000000000
+                penalty = 1000000000000000
             else:
-                penalty = 1000000000           
+                penalty = 100000000000000          
             routing.AddDisjunction([manager.NodeToIndex(node)], penalty)
         
         search_parameters = pywrapcp.DefaultRoutingSearchParameters() 
@@ -249,8 +243,8 @@ class VRPSolver:
         search_parameters.local_search_metaheuristic = (
             routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
         )
-        search_parameters.time_limit.seconds = 100
-        search_parameters.lns_time_limit.seconds = 30     
+        search_parameters.time_limit.seconds = 50
+        search_parameters.lns_time_limit.seconds = 30    
         solution = routing.SolveWithParameters(search_parameters)
        
         solution_data = {
@@ -323,7 +317,7 @@ class VRPSolver:
             vrp_data['time_windows'],
             vrp_data['time_matrix'],
             vrp_data['priority_weight']
-        )     
+        )   
         mapped_solution = {
             "solution_id" : f"SOL_{datetime.now().strftime('%Y%m%d%H%M%S')}",
             'date' : self.start_day,
