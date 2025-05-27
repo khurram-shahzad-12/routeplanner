@@ -14,7 +14,7 @@ def get_vpr_solutions(request):
         if request.method == 'POST': 
             try:
                   data = json.loads(request.body)
-                  required_fields = ['invoice_date','miles', 'maxOrders', 'routeLength',]
+                  required_fields = ['invoice_date','miles', 'maxOrders', 'routeLength','unLoadingTime']
                   missing_fields = [field for field in required_fields if field not in data]
 
                   if missing_fields:
@@ -23,7 +23,8 @@ def get_vpr_solutions(request):
                   mile_range=data.get('miles')
                   max_orders=data.get('maxOrders')
                   route_length =data.get('routeLength')
-                  solver = VRPSolver(invoice_date=invoice_date, mile_range=mile_range,max_orders=max_orders, route_length=route_length)
+                  service_time=data.get('unLoadingTime')
+                  solver = VRPSolver(invoice_date=invoice_date, mile_range=mile_range,max_orders=max_orders, route_length=route_length, service_time=service_time)
                   order_reports = solver.generate_routing_solutions()               
                   return JsonResponse({"message": order_reports}, safe=False)          
             except json.JSONDecodeError:

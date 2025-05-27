@@ -11,7 +11,7 @@ import json
 
 
 class VRPSolver:
-    def __init__(self, invoice_date, mile_range,max_orders,route_length ):
+    def __init__(self, invoice_date, mile_range,max_orders,route_length,service_time ):
         clean_date = invoice_date.split('T')[0]
         self.start_day = datetime.strptime(clean_date, "%Y-%m-%d")
         self.end_day = self.start_day + timedelta(days=1)
@@ -20,7 +20,7 @@ class VRPSolver:
         self.mile_range = int(mile_range)
         self.max_orders = int(max_orders)
         self.route_length = int(route_length)
-        self.SERVICE_TIME = 900
+        self.SERVICE_TIME = int(int(service_time)*60)
 
     def seconds_to_time(self,seconds):
         hours = seconds // 3600
