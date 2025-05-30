@@ -327,16 +327,25 @@ class VRPSolver:
             'date' : self.start_day,
             'total_distance' : round(solution['total_distance']/1600,2),
             'vehicle_routes': []
-        }     
+        } 
+        total_weights = {}
         for route in solution['routes']:
             if len(route['route_detail']) <= 2:
-                continue 
+                continue
             vehicle_id = route['vehicle_id']
             vehicle = vrp_data['vehicle_details'][vehicle_id]
+            total_weight = 0 
+            for stop in route['route_detail']:
+                if stop['type'] == 'customer':
+                    node = stop['node']   
+                    if node != vrp_data['depot_index']:
+                        total_weight += vrp_data['demand'][node] 
+            total_weights[vehicle_id] = total_weight
             route_details = {
                 'vehicle_id':ObjectId(vehicle['_id']),
                 'stops':[],
-                'distance_veh_km': round(route['distance']/1600, 2)
+                'distance_veh_km': round(route['distance']/1600, 2),
+                'total_weight_kg_veh': total_weight
             }       
             for i,stop in enumerate(route['route_detail']):
                 stop_index = stop['node']
@@ -376,6 +385,7 @@ class VRPSolver:
                         latitude= customer.get('latitude')
                         longitude = customer.get('longitude')
                         location_str = f"{latitude},{longitude}"
+                        stop_weight = vrp_data['demand'][stop_index]
                         route_details['stops'].append({
                             'type': 'delivery',
                             'order_id': order['_id'],
@@ -386,7 +396,8 @@ class VRPSolver:
                             'arrival_time': self.seconds_to_time(stop['arrival_time']),
                             'travel_time': self.format_travel_time(stop['travel_time']),
                             'distance': round(stop['distance']/1600,2),
-                            'departure_time': self.seconds_to_time(stop['departure_time'])                                                                         
+                            'departure_time': self.seconds_to_time(stop['departure_time']),
+                            'order_weight': stop_weight,                                                                        
                         })
             mapped_solution['vehicle_routes'].append(route_details)       
         vehicle_collection.update_many({}, {'$set':{'status': 'unassigned'}})
