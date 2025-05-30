@@ -343,12 +343,13 @@ class VRPSolver:
               
                 if stop_index == vrp_data['depot_index']:
                     is_final_depot = (i == len(route['route_detail'])-1)
-
+                    location_ary = vrp_data['locations'][stop_index]
+                    location_string = f"{location_ary[0]},{location_ary[1]}"
                     if is_final_depot:
                         adjusted_arrival = stop['arrival_time'] - self.SERVICE_TIME
                         route_details['stops'].append({
                         'type':'depot',
-                        'location':vrp_data['locations'][stop_index],
+                        'location':location_string,
                         'address': "Depot Location",
                         'departure_time': self.seconds_to_time(stop['departure_time']),
                         'arrival_time': self.seconds_to_time(adjusted_arrival),
@@ -358,7 +359,7 @@ class VRPSolver:
                     else:                        
                         route_details['stops'].append({
                         'type':'depot',
-                        'location':vrp_data['locations'][stop_index],
+                        'location':location_string,
                         'address': "Depot Location",
                         'departure_time': self.seconds_to_time(stop['departure_time']),
                         'arrival_time': self.seconds_to_time(stop['arrival_time']),
