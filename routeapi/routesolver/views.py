@@ -4,6 +4,7 @@ from bson import ObjectId
 from bson.json_util import dumps,loads
 from django.views.decorators.csrf import csrf_exempt
 from .vrp_service import VRPSolver
+from datetime import datetime
 import json
 import logging
 
@@ -24,7 +25,9 @@ def get_vpr_solutions(request):
                   max_orders=data.get('maxOrders')
                   route_length =data.get('routeLength')
                   service_time=data.get('unLoadingTime')
-                  solver = VRPSolver(invoice_date=invoice_date, mile_range=mile_range,max_orders=max_orders, route_length=route_length, service_time=service_time)
+                  dt = datetime.fromisoformat(invoice_date.replace('Z', '+00:00'))
+                  day_of_week = dt.weekday()
+                  solver = VRPSolver(invoice_date=invoice_date, mile_range=mile_range,max_orders=max_orders, route_length=route_length, service_time=service_time, day_of_week=day_of_week)
                   order_reports = solver.generate_routing_solutions()               
                   return JsonResponse({"message": order_reports}, safe=False)          
             except json.JSONDecodeError:

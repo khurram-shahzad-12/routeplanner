@@ -11,7 +11,7 @@ import json
 
 
 class VRPSolver:
-    def __init__(self, invoice_date, mile_range,max_orders,route_length,service_time ):
+    def __init__(self, invoice_date, mile_range,max_orders,route_length,service_time,day_of_week ):
         clean_date = invoice_date.split('T')[0]
         self.start_day = datetime.strptime(clean_date, "%Y-%m-%d")
         self.end_day = self.start_day + timedelta(days=1)
@@ -21,6 +21,7 @@ class VRPSolver:
         self.max_orders = int(max_orders)
         self.route_length = int(route_length)
         self.SERVICE_TIME = int(int(service_time)*60)
+        self.day_of_week = int(day_of_week)
 
     def seconds_to_time(self,seconds):
         hours = seconds // 3600
@@ -106,15 +107,23 @@ class VRPSolver:
                 raise ValueError(f"{current_customer} location could not find in map")   
             demand.append(total_weight_kg)
             customer_id_to_index[customer_data['_id']]=i+1
-            start_time_str = customer_data.get('business_start_hour')
-            end_time_str = customer_data.get('business_close_hour')
-            if start_time_str:
+            start_time_array = customer_data.get('business_start_hour',[])
+            if start_time_array and 0 <= self.day_of_week < len(start_time_array):
+                start_time_str = start_time_array[self.day_of_week]
+            else:
+                start_time_str = "15:00"
+            end_time_array = customer_data.get('business_close_hour',[])
+            if end_time_array and 0 <= self.day_of_week < len(end_time_array):
+                end_time_str = end_time_array[self.day_of_week]
+            else:
+                end_time_str = "22:00"
+            try:
                 start_time = datetime.strptime(start_time_str,"%H:%M")
-            else:
-                start_time = datetime.strptime("00:00","%H:%M")
-            if end_time_str:
+            except ValueError:
+                start_time = datetime.strptime("12:00","%H:%M")
+            try:
                 end_time = datetime.strptime(end_time_str,"%H:%M")
-            else:
+            except ValueError:
                 end_time = datetime.strptime("23:59","%H:%M")
             second_start = (start_time-datetime.strptime("00:00","%H:%M")).seconds
             second_end = (end_time-datetime.strptime("00:00","%H:%M")).seconds
@@ -399,12 +408,29 @@ class VRPSolver:
                             'departure_time': self.seconds_to_time(stop['departure_time']),
                             'order_weight': stop_weight,                                                                        
                         })
-            mapped_solution['vehicle_routes'].append(route_details)       
+            mapped_solution['vehicle_routes'].append(route_details)      
         vehicle_collection.update_many({}, {'$set':{'status': 'unassigned'}})
         for i,veh in enumerate(mapped_solution['vehicle_routes']):                                            
             vehicle_collection.update_one({
                 '_id': ObjectId(veh['vehicle_id'])
-            }, {'$set': {'status': 'assigned'}})                 
+            }, {'$set': {'status': 'assigned'}})  
+        mapped_solution['vehicle_routes'].append({
+           "distance_veh_km": 0,
+           "total_weight_kg_veh": 0,
+           "vehicle_id": ObjectId("66ce12323d5c4f17543ec448"),
+           "stops": [
+                    {
+                        "type": "depot",
+                        "location": "55.8642,-4.2518",
+                        "address": "Spice Direct Office",
+                        "arrival_time": "00:00",
+                        "departure_time": "00:00",
+                        "travel_time": "0min",
+                        "distance": 0
+                    }
+                ]                                             
+                
+            })
         routesolver_collection.insert_one(mapped_solution)            
         return []
         
