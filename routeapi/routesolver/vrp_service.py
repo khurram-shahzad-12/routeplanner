@@ -408,6 +408,7 @@ class VRPSolver:
                             'departure_time': self.seconds_to_time(stop['departure_time']),
                             'order_weight': stop_weight,                                                                        
                         })
+            route_details['zone'] = f"Zone - {len(mapped_solution['vehicle_routes'])+1}"
             mapped_solution['vehicle_routes'].append(route_details)      
         vehicle_collection.update_many({}, {'$set':{'status': 'unassigned'}})
         for i,veh in enumerate(mapped_solution['vehicle_routes']):                                            
@@ -417,7 +418,8 @@ class VRPSolver:
         mapped_solution['vehicle_routes'].append({
            "distance_veh_km": 0,
            "total_weight_kg_veh": 0,
-           "vehicle_id": ObjectId("66ce12323d5c4f17543ec448"),
+           "zone": "Zone - 0",
+           "vehicle_id": ObjectId("659419c572707b2a064b1788"),
            "stops": [
                     {
                         "type": "depot",
@@ -429,9 +431,17 @@ class VRPSolver:
                         "distance": 0
                     }
                 ]                                             
-                
             })
-        routesolver_collection.insert_one(mapped_solution)            
+        routesolver_collection.insert_one(mapped_solution) 
+        for rte in mapped_solution['vehicle_routes']: 
+            zone = rte.get("zone")
+            if not zone:
+                continue
+            for stp in rte['stops']:
+                order_id = stp.get("order_id")
+                if not order_id:
+                    continue
+                update_zone = orders_collection.update_one({"_id":order_id},{"$set":{"zone":zone}})          
         return []
         
 
