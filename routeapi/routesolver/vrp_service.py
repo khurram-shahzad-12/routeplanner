@@ -55,7 +55,7 @@ class VRPSolver:
         return distance_matrix, time_matrix
 
     def get_orders_for_routing(self):
-        orders = list(orders_collection.find({'invoice_date':{'$gte':self.start_day,'$lt':self.end_day}},{'_id': 1, 'ot_date': 1, 'delivery_status': 1, 'items.weight_kg': 1,'customer':1, 'priority_value': 1}))
+        orders = list(orders_collection.find({'invoice_date':{'$gte':self.start_day,'$lt':self.end_day}, 'in_person':False},{'_id': 1, 'ot_date': 1, 'delivery_status': 1, 'items.weight_kg': 1,'customer':1, 'priority_value': 1}))
         if not orders:
             raise ValueError("no order found for the invoice date")
         customer_ids = [order['customer'] for order in orders if 'customer' in order]
@@ -415,7 +415,7 @@ class VRPSolver:
             vehicle_collection.update_one({
                 '_id': ObjectId(veh['vehicle_id'])
             }, {'$set': {'status': 'assigned'}})  
-        mapped_solution['vehicle_routes'].append({
+        mapped_solution['vehicle_routes'].insert(0,{
            "distance_veh_km": 0,
            "total_weight_kg_veh": 0,
            "zone": "Zone - 0",
