@@ -28,6 +28,8 @@ DEBUG = True
 
 ALLOWED_HOSTS = [
     'test.spicedirectwholesale.co.uk',
+    'spicedirectwholesale.co.uk',
+    'www.spicedirectwholesale.co.uk',
     'localhost',
     '127.0.0.1',
 ]
