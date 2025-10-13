@@ -40,7 +40,7 @@ class VRPSolver:
         url = f"{osrm_url}{coordinates}?annotations=distance,duration"
         result = requests.get(url)
         if result.status_code != 200:
-            raise ValueError(f"failed to get ditance: {result.status_code}")
+            raise ValueError(f"failed to get distance, location not found: {result.status_code}")
         data = result.json()
         if "distances" not in data or "durations" not in data:
             raise ValueError("Missing distance/duration from osrm response")
@@ -55,7 +55,7 @@ class VRPSolver:
         return distance_matrix, time_matrix
 
     def get_orders_for_routing(self):
-        orders_raw = list(orders_collection.find({'invoice_date':{'$gte':self.start_day,'$lt':self.end_day}, 'in_person':False},{'_id': 1, 'ot_date': 1, 'delivery_status': 1, 'items.weight_kg': 1,'customer':1, 'priority_value': 1}))
+        orders_raw = list(orders_collection.find({'invoice_date':{'$gte':self.start_day,'$lt':self.end_day}, 'in_person':False},{'_id': 1, 'ot_date': 1, 'delivery_status': 1, 'items.weight_kg': 1,'items.quantity': 1,'customer':1, 'priority_value': 1}))
         orders_raw.reverse()
         seen_customer = set()
         filtered_orders=[]
@@ -97,7 +97,7 @@ class VRPSolver:
        
         for i,order in enumerate(orders):
             total_weight_kg = sum(
-                int(item.get('weight_kg', 1))
+                int(item.get('weight_kg', 1)) * int(item.get('quantity', 1))
                 for item in order.get('items',[])
             )
             customer_data = customers.get(str(order['customer']), {})
