@@ -56,16 +56,17 @@ class VRPSolver:
 
     def get_orders_for_routing(self):
         orders_raw = list(orders_collection.find({'invoice_date':{'$gte':self.start_day,'$lt':self.end_day}, 'in_person':False},{'_id': 1, 'ot_date': 1, 'delivery_status': 1, 'items.weight_kg': 1,'items.quantity': 1,'customer':1, 'priority_value': 1}))
-        orders_raw.reverse()
-        seen_customer = set()
-        filtered_orders=[]
-        for order in orders_raw:
-            customer_id = str(order['customer'])
-            if customer_id not in seen_customer:
-                filtered_orders.append(order)
-                seen_customer.add(customer_id)
-        filtered_orders.reverse()
-        orders=filtered_orders
+        # orders_raw.reverse()
+        # seen_customer = set()
+        # filtered_orders=[]
+        # for order in orders_raw:
+        #     customer_id = str(order['customer'])
+        #     if customer_id not in seen_customer:
+        #         filtered_orders.append(order)
+        #         seen_customer.add(customer_id)
+        # filtered_orders.reverse()
+        # orders=filtered_orders
+        orders = list(orders_raw)
         if not orders:
             raise ValueError("no order found for the invoice date")
         customer_ids = [order['customer'] for order in orders if 'customer' in order]
