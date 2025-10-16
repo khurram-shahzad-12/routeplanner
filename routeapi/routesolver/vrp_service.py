@@ -56,17 +56,21 @@ class VRPSolver:
 
     def get_orders_for_routing(self):
         orders_raw = list(orders_collection.find({'invoice_date':{'$gte':self.start_day,'$lt':self.end_day}, 'in_person':False},{'_id': 1, 'ot_date': 1, 'delivery_status': 1, 'items.weight_kg': 1,'items.quantity': 1,'customer':1, 'priority_value': 1}))
-        # orders_raw.reverse()
-        # seen_customer = set()
-        # filtered_orders=[]
-        # for order in orders_raw:
-        #     customer_id = str(order['customer'])
-        #     if customer_id not in seen_customer:
-        #         filtered_orders.append(order)
-        #         seen_customer.add(customer_id)
-        # filtered_orders.reverse()
-        # orders=filtered_orders
-        orders = list(orders_raw)
+
+        customer_orders = {}
+        for order in orders_raw:
+            customer_id = str(order['customer'])
+            if customer_id not in customer_orders:
+                customer_orders[customer_id] = {
+                    '_id': f"combined_{customer_id}",
+                    'customer': order['customer'],
+                    'items':[],
+                    'priority_value': order.get('priority_value', 0),
+                    'original_orders': []
+                }
+            customer_orders[customer_id]['items'].extend(order.get('items', []))
+            customer_orders[customer_id]['original_orders'].append(order['_id'])
+        orders = list(customer_orders.values())
         if not orders:
             raise ValueError("no order found for the invoice date")
         customer_ids = [order['customer'] for order in orders if 'customer' in order]
@@ -96,6 +100,7 @@ class VRPSolver:
         time_windows = [(0,86400)]
         priority_weight = []
        
+        original_orders_mapping = {}
         for i,order in enumerate(orders):
             total_weight_kg = sum(
                 int(item.get('weight_kg', 1)) * int(item.get('quantity', 1))
@@ -118,6 +123,8 @@ class VRPSolver:
                 raise ValueError(f"{current_customer} location could not find in map")   
             demand.append(total_weight_kg)
             customer_id_to_index[customer_data['_id']]=i+1
+
+            original_orders_mapping[i+1] = order.get('original_orders', [order['_id']])
             start_time_array = customer_data.get('business_start_hour',[])
             if start_time_array and 0 <= self.day_of_week < len(start_time_array):
                 start_time_str = start_time_array[self.day_of_week]
@@ -158,6 +165,7 @@ class VRPSolver:
             'customers':customers,
             'time_windows': time_windows,
             'priority_weight': priority_weight,
+            'original_orders_mapping': original_orders_mapping,
         }
     
     def solve_vrp(self, depot_index, distance_matrix, vehicle_capacities, demands, num_vehicles, time_windows, time_matrix, priority_weight):
@@ -409,6 +417,7 @@ class VRPSolver:
                         route_details['stops'].append({
                             'type': 'delivery',
                             'order_id': order['_id'],
+                            'original_order_ids': vrp_data['original_orders_mapping'].get(stop_index, []),
                             'customer_id': customer['_id'],
                             'customer_name': customer['customer_name'],
                             'address': customer['address'],
@@ -449,10 +458,14 @@ class VRPSolver:
             if not zone:
                 continue
             for stp in rte['stops']:
-                order_id = stp.get("order_id")
-                if not order_id:
-                    continue
-                update_zone = orders_collection.update_one({"_id":order_id},{"$set":{"zone":zone}})          
+                original_order_ids = stp.get("original_order_ids", [])
+                if original_order_ids:
+                    for order_id in original_order_ids:
+                        update_zone = orders_collection.update_one({"_id":order_id},{"$set":{"zone":zone}})
+                else:
+                    order_id = stp.get("order_id")
+                    if order_id:
+                        update_zone = orders_collection.update_one({"_id":order_id},{"$set":{"zone":zone}})          
         return []
         
 
