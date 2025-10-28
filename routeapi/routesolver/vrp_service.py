@@ -442,7 +442,7 @@ class VRPSolver:
         mapped_solution['vehicle_routes'].insert(0,{
            "distance_veh_km": 0,
            "total_weight_kg_veh": 0,
-           "zone": "Zone - 0",
+           "zone": "Zone - Office",
            "vehicle_id": ObjectId("659419c572707b2a064b1788"),
            "stops": [
                     {
