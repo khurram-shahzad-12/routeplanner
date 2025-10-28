@@ -2,7 +2,7 @@ import googlemaps
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 from datetime import datetime, timedelta
-from .models import routesolver_collection, orders_collection, customer_collection, vehicle_collection
+from .models import routesolver_collection, orders_collection, customer_collection, vehicle_collection, cancelled_invoices
 from ..helper.serializer import json_serialize
 from decouple import config
 from bson import ObjectId
@@ -15,6 +15,7 @@ class VRPSolver:
         clean_date = invoice_date.split('T')[0]
         self.start_day = datetime.strptime(clean_date, "%Y-%m-%d")
         self.end_day = self.start_day + timedelta(days=1)
+        self.start_cancelled_ot_day = self.start_day - timedelta(days=4)
         # self.gmaps = googlemaps.Client(key=config('GOOGLE_MAPS_API_KEY'))
         self.invoice_date = invoice_date
         self.mile_range = int(mile_range)
@@ -56,9 +57,12 @@ class VRPSolver:
 
     def get_orders_for_routing(self):
         orders_raw = list(orders_collection.find({'invoice_date':{'$gte':self.start_day,'$lt':self.end_day}, 'in_person':False},{'_id': 1, 'ot_date': 1, 'delivery_status': 1, 'items.weight_kg': 1,'items.quantity': 1,'customer':1, 'priority_value': 1}))
+        cancelled_customers = list(cancelled_invoices.find({'ot_date':{'$gte':self.start_cancelled_ot_day, '$lt':self.end_day}},{'customer': 1, '_id': 0, 'ot_date': 1}))
+        cancelled_set = {(doc['customer'], doc['ot_date']) for doc in cancelled_customers}
+        filtered_orders = [order for order in orders_raw if (order['customer'], order['ot_date']) not in cancelled_set]
 
         customer_orders = {}
-        for order in orders_raw:
+        for order in filtered_orders:
             customer_id = str(order['customer'])
             if customer_id not in customer_orders:
                 customer_orders[customer_id] = {
@@ -457,15 +461,15 @@ class VRPSolver:
             zone = rte.get("zone")
             if not zone:
                 continue
-            for stp in rte['stops']:
+            for stop_index,stp in enumerate(rte['stops']):
                 original_order_ids = stp.get("original_order_ids", [])
                 if original_order_ids:
                     for order_id in original_order_ids:
-                        update_zone = orders_collection.update_one({"_id":order_id},{"$set":{"zone":zone}})
+                        update_zone = orders_collection.update_one({"_id":order_id},{"$set":{"zone":f"{zone}({stop_index})"}})
                 else:
                     order_id = stp.get("order_id")
                     if order_id:
-                        update_zone = orders_collection.update_one({"_id":order_id},{"$set":{"zone":zone}})          
+                        update_zone = orders_collection.update_one({"_id":order_id},{"$set":{"zone":f"{zone}({stop_index})"}})          
         return []
         
 
