@@ -33,7 +33,8 @@ ALLOWED_HOSTS = [
     'staff.spicedirectwholesale.co.uk',
     'localhost',
     '127.0.0.1',
-    '5.81.127.70'
+    '5.81.127.70',
+    '147.148.89.114',
 ]
 
 
